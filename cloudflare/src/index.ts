@@ -287,6 +287,48 @@ const FLOATING_LAUNCHER_SNIPPET = `
   }
   initFab();
   window.addEventListener("load", initFab);
+
+  // Background audio prefetcher: quietly warms browser cache for all slide audio in the current lesson
+  const prefetched = new Set();
+  const prefetchQueue = [];
+  let prefetchActive = 0;
+  function pumpPrefetch() {
+    while (prefetchActive < 2 && prefetchQueue.length > 0) {
+      const url = prefetchQueue.shift();
+      if (!url || prefetched.has(url)) continue;
+      prefetched.add(url);
+      prefetchActive++;
+      fetch(url, { credentials: "same-origin", priority: "low" })
+        .then((r) => r.arrayBuffer())
+        .catch(() => {})
+        .finally(() => {
+          prefetchActive--;
+          pumpPrefetch();
+        });
+    }
+  }
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const resp = await origFetch(...args);
+    try {
+      const reqUrl = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
+      if (resp.ok && /\/api\/(stages|persistence\/stages)/.test(reqUrl)) {
+        const ct = resp.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          resp.clone().text().then((body) => {
+            const matches = body.match(/\/api\/persistence\/assets\/[a-zA-Z0-9_-]+\/content/g);
+            if (matches) {
+              for (const m of matches) {
+                if (!prefetched.has(m)) prefetchQueue.push(m);
+              }
+              pumpPrefetch();
+            }
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+    return resp;
+  };
 })();
 </script>
 `;

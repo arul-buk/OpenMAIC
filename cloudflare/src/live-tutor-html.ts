@@ -744,6 +744,11 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     }
   });
 
+  // Hide Share Slide on Android/iOS browsers that do not support getDisplayMedia
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== "function") {
+    shareBtn.style.display = "none";
+  }
+
   requestParentContext();
   checkAuth();
 })();
