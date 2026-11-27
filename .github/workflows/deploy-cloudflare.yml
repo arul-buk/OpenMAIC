@@ -40,8 +40,6 @@ jobs:
           platforms: linux/amd64
           tags: openmaic-upstream:latest
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Install Cloudflare wrapper dependencies
         working-directory: cloudflare
