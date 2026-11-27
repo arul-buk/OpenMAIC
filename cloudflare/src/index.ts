@@ -231,16 +231,32 @@ const FLOATING_LAUNCHER_SNIPPET = `
 </button>
 <div id="openmaic-live-drawer" aria-label="Notebook Camera Tutor">
   <div id="openmaic-live-drawer-bar">
-    <span>Gemini Live · Notebook Camera</span>
+    <span>Gemini Live · Tutor</span>
     <div style="display:flex;align-items:center;gap:10px;">
       <a href="/live-tutor" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-size:12px;">Pop out &#8599;</a>
-      <button id="openmaic-live-drawer-close" type="button" aria-label="Close">&times;</button>
+      <button id="openmaic-live-drawer-close" type="button" aria-label="Hide" title="Hide (keeps session alive)">&minus;</button>
     </div>
   </div>
-  <iframe id="openmaic-live-iframe" allow="camera; microphone; autoplay; speaker-selection" src="about:blank"></iframe>
+  <iframe id="openmaic-live-iframe" allow="camera; microphone; autoplay; speaker-selection; display-capture" src="about:blank"></iframe>
 </div>
 <script>
 (() => {
+  function extractOpenMaicContext() {
+    try {
+      const main = document.querySelector("main") || document.body;
+      const clone = main.cloneNode(true);
+      clone.querySelectorAll("#openmaic-live-fab,#openmaic-live-drawer,script,style,svg").forEach(el => el.remove());
+      const text = (clone.innerText || "").replace(/\s+/g, " ").trim().slice(0, 2400);
+      return {
+        type: "OPENMAIC_CONTEXT",
+        title: document.title || "OpenMAIC",
+        url: location.pathname,
+        text
+      };
+    } catch {
+      return { type: "OPENMAIC_CONTEXT", title: document.title || "OpenMAIC", url: location.pathname, text: "" };
+    }
+  }
   function initFab() {
     const fab = document.getElementById("openmaic-live-fab");
     const drawer = document.getElementById("openmaic-live-drawer");
@@ -248,13 +264,25 @@ const FLOATING_LAUNCHER_SNIPPET = `
     const iframe = document.getElementById("openmaic-live-iframe");
     if (!fab || !drawer || !closeBtn || !iframe || fab.dataset.bound) return;
     fab.dataset.bound = "1";
+    const sendContext = () => {
+      if (iframe.contentWindow) iframe.contentWindow.postMessage(extractOpenMaicContext(), location.origin);
+    };
     fab.addEventListener("click", () => {
-      if (!iframe.src || !iframe.src.includes("/live-tutor")) iframe.src = "/live-tutor";
-      drawer.classList.add("open");
+      if (!iframe.src || !iframe.src.includes("/live-tutor")) {
+        iframe.src = "/live-tutor";
+      }
+      drawer.classList.toggle("open");
+      if (drawer.classList.contains("open")) {
+        setTimeout(sendContext, 300);
+      }
     });
     closeBtn.addEventListener("click", () => {
       drawer.classList.remove("open");
-      iframe.src = "about:blank";
+    });
+    window.addEventListener("message", (e) => {
+      if (e.origin === location.origin && e.data && e.data.type === "OPENMAIC_CONTEXT_REQUEST") {
+        sendContext();
+      }
     });
   }
   initFab();

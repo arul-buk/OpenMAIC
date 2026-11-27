@@ -228,12 +228,13 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   </div>
 
   <div class="controls">
-    <input id="topicInput" class="topic-input" type="text" placeholder="Optional topic (e.g., Fractions, Long Division, Science)" />
+    <input id="topicInput" class="topic-input" type="text" placeholder="Optional topic (auto-reads OpenMAIC slide context)" />
     <div class="btn-row">
       <button id="startBtn" class="primary">Start Live Session</button>
-      <button id="checkBtn" class="check-btn" style="display:none">Check Notebook</button>
+      <button id="checkBtn" class="check-btn" style="display:none">Check Now</button>
       <button id="stopBtn" class="danger" style="display:none">Stop</button>
       <button id="micBtn" disabled>Mic On</button>
+      <button id="shareBtn" disabled title="Switch between Notebook Camera and OpenMAIC Slide Screen">Share Slide</button>
       <button id="camBtn" disabled>Cam On</button>
       <button id="flipBtn" disabled>Flip</button>
     </div>
@@ -253,6 +254,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   const checkBtn = document.getElementById("checkBtn");
   const stopBtn = document.getElementById("stopBtn");
   const micBtn = document.getElementById("micBtn");
+  const shareBtn = document.getElementById("shareBtn");
   const camBtn = document.getElementById("camBtn");
   const flipBtn = document.getElementById("flipBtn");
   const dot = document.getElementById("dot");
@@ -262,6 +264,8 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
 
   let ws = null;
   let mediaStream = null;
+  let screenStream = null;
+  let videoMode = "camera";
   let audioCtx = null;
   let playCtx = null;
   let nextPlayTime = 0;
@@ -272,6 +276,31 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   let facingMode = "environment";
   let unlocked = false;
   let tutorBuffer = "";
+  let userBuffer = "";
+  let openMaicContext = { title: "", text: "" };
+
+  function loadHistory() {
+    try { return JSON.parse(sessionStorage.getItem("openmaic_live_history") || "[]"); } catch { return []; }
+  }
+  function saveTurn(role, text) {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    const hist = loadHistory();
+    hist.push(role + ": " + clean.slice(0, 260));
+    while (hist.length > 12) hist.shift();
+    try { sessionStorage.setItem("openmaic_live_history", JSON.stringify(hist)); } catch {}
+  }
+
+  window.addEventListener("message", (e) => {
+    if (e.origin === location.origin && e.data && e.data.type === "OPENMAIC_CONTEXT") {
+      openMaicContext = { title: e.data.title || "", text: e.data.text || "" };
+    }
+  });
+  function requestParentContext() {
+    if (window.parent && window.parent !== window) {
+      try { window.parent.postMessage({ type: "OPENMAIC_CONTEXT_REQUEST" }, location.origin); } catch {}
+    }
+  }
 
   function setStatus(text, state) {
     statusEl.textContent = text;
@@ -497,13 +526,16 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
 
     ws.onopen = () => {
       const topic = topicInput.value.trim();
+      const recentHistory = loadHistory();
       const systemPrompt = [
-        "You are a warm, patient, encouraging tutor watching a student's physical notebook through their camera.",
-        "Observe what they write and draw in real time. Praise what they got right first.",
-        "Never just blurt out the final answer: instead, point to the specific line or step where they can improve and ask one gentle guiding question.",
+        "You are a warm, patient, encouraging tutor watching a student's physical notebook or OpenMAIC lesson slide through their camera or shared screen.",
+        "Observe what they write, draw, or show on screen in real time. Praise what they got right first.",
+        "Never just blurt out the final answer: instead, point to the specific line, slide concept, or step where they can improve and ask one gentle guiding question.",
         "Keep every spoken reply short (1 to 3 sentences) and clear, like sitting beside them at the study desk.",
-        topic ? ("Current study topic: " + topic + ".") : ""
-      ].filter(Boolean).join(" ");
+        topic ? ("Current study topic: " + topic + ".") : "",
+        openMaicContext.text ? ("Current OpenMAIC classroom screen context (" + openMaicContext.title + "): " + openMaicContext.text) : "",
+        recentHistory.length ? ("Earlier in this study session:\n" + recentHistory.join("\n")) : ""
+      ].filter(Boolean).join("\n");
 
       ws.send(JSON.stringify({
         setup: {
@@ -542,16 +574,16 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
           checkBtn.style.display = "inline-flex";
           stopBtn.style.display = "inline-flex";
           micBtn.disabled = false;
+          shareBtn.disabled = false;
           camBtn.disabled = false;
           flipBtn.disabled = false;
           startFrameLoop();
           startMicLoop();
           showCaption("Connected! Listening and watching your notebook...");
 
-          // Trigger an immediate friendly greeting so the user knows audio is working
           ws.send(JSON.stringify({
             clientContent: {
-              turns: [{ role: "user", parts: [{ text: "Hi! I just turned on my notebook camera. Greet me warmly in one short sentence and let me know you're ready to look at my notebook." }] }],
+              turns: [{ role: "user", parts: [{ text: "Hi! I just turned on my live tutor. Greet me warmly in one short sentence and let me know you're ready to help with my lesson or notebook." }] }],
               turnComplete: true
             }
           }));
@@ -560,6 +592,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
 
         if (msg.serverContent?.interrupted) {
           stopPlayback();
+          if (tutorBuffer) saveTurn("Tutor", tutorBuffer);
           tutorBuffer = "";
         }
 
@@ -578,10 +611,12 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
           showCaption("Tutor: " + tutorBuffer);
         }
         if (msg.serverContent?.inputTranscription?.text) {
-          showCaption("You: " + msg.serverContent.inputTranscription.text);
+          userBuffer += msg.serverContent.inputTranscription.text;
+          showCaption("You: " + userBuffer);
         }
         if (msg.serverContent?.turnComplete) {
-          tutorBuffer = "";
+          if (userBuffer) { saveTurn("Student", userBuffer); userBuffer = ""; }
+          if (tutorBuffer) { saveTurn("Tutor", tutorBuffer); tutorBuffer = ""; }
         }
       } catch {}
     };
@@ -608,6 +643,13 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       mediaStream.getTracks().forEach(t => t.stop());
       mediaStream = null;
     }
+    if (screenStream) {
+      screenStream.getTracks().forEach(t => t.stop());
+      screenStream = null;
+    }
+    videoMode = "camera";
+    shareBtn.textContent = "Share Slide";
+    shareBtn.disabled = true;
     video.srcObject = null;
     meterFill.style.width = "0%";
     placeholder.style.display = "flex";
@@ -661,13 +703,48 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     camBtn.classList.toggle("active-off", camPaused);
   });
 
+  shareBtn.addEventListener("click", async () => {
+    if (videoMode === "camera") {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        videoMode = "screen";
+        video.srcObject = screenStream;
+        await video.play().catch(() => {});
+        shareBtn.textContent = "Use Camera";
+        setStatus("Live · Watching Slide", "live");
+        screenStream.getVideoTracks()[0].addEventListener("ended", () => {
+          videoMode = "camera";
+          screenStream = null;
+          if (mediaStream) video.srcObject = mediaStream;
+          shareBtn.textContent = "Share Slide";
+          setStatus("Live · Watching Notebook", "live");
+        });
+      } catch {
+        showCaption("Screen share was cancelled — still watching your notebook camera.");
+      }
+    } else {
+      if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        screenStream = null;
+      }
+      videoMode = "camera";
+      if (mediaStream) {
+        video.srcObject = mediaStream;
+        await video.play().catch(() => {});
+      }
+      shareBtn.textContent = "Share Slide";
+      setStatus("Live · Watching Notebook", "live");
+    }
+  });
+
   flipBtn.addEventListener("click", async () => {
     facingMode = facingMode === "environment" ? "user" : "environment";
-    if (mediaStream) {
+    if (mediaStream && videoMode === "camera") {
       await startCamera();
     }
   });
 
+  requestParentContext();
   checkAuth();
 })();
 </script>
