@@ -10,7 +10,7 @@
     {
       "class_name": "OpenMAICContainer",
       "image": "../Dockerfile.cloudflare",
-      "instance_type": "standard-1",
+      "instance_type": "standard-2",
       "max_instances": 2
     }
   ],

@@ -8,11 +8,13 @@ export interface Env {
   ACCESS_CODE: string;
   OPENMAIC_SECRET_KEY: string;
   OWNER_SINGLE_USER_ID: string;
+  AWS_ACCESS_KEY_ID: string;
+  AWS_SECRET_ACCESS_KEY: string;
 }
 
 export class OpenMAICContainer extends Container<Env> {
   defaultPort = 3000;
-  sleepAfter = "15m";
+  sleepAfter = "30m";
 
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
@@ -27,6 +29,12 @@ export class OpenMAICContainer extends Container<Env> {
       ACCESS_CODE: env.ACCESS_CODE,
       OPENMAIC_SECRET_KEY: env.OPENMAIC_SECRET_KEY,
       OWNER_SINGLE_USER_ID: env.OWNER_SINGLE_USER_ID,
+      ASSET_S3_BUCKET: "openmaic-assets",
+      AWS_REGION: "auto",
+      AWS_ENDPOINT_URL_S3: "https://2f8a5cfdd43166fcab6a74e2723ec923.r2.cloudflarestorage.com",
+      AWS_S3_FORCE_PATH_STYLE: "1",
+      AWS_ACCESS_KEY_ID: env.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY,
     };
   }
 }
