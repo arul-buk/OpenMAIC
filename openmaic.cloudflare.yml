@@ -1,4 +1,4 @@
-# OpenMAIC model configuration — Gemini 4 Neon (medium effort), locked for family evaluation
+# OpenMAIC model configuration — Neon (medium effort) for content creation, Hydrogen for fast chat/actions
 # Contains no secrets; runtime credentials are injected via Cloudflare Worker Secrets.
 providers:
   google:
@@ -6,8 +6,8 @@ providers:
     apiKey: ${GOOGLE_API_KEY}
     models:
       - gemini-4-neon
+      - gemini-4-hydrogen
       - gemini-3.8-flash
-      - gemini-2.5-flash
 
   google-tts:
     preset: google-tts
@@ -17,11 +17,29 @@ providers:
       - gemini-3.8-flash-tts
 
 slots:
+  # Default fast model for lightweight tasks, research, and agents
   llm:
+    model: google:gemini-4-hydrogen
+    fallback: google:gemini-3.8-flash
+
+  # Content creation (course outlines, slides, quizzes, interactive simulations, PBL)
+  course.outline:
     model: google:gemini-4-neon
     thinking:
       effort: medium
-    fallback: google:gemini-3.8-flash
+    fallback: google:gemini-4-hydrogen
+  course.content:
+    model: google:gemini-4-neon
+    thinking:
+      effort: medium
+    fallback: google:gemini-4-hydrogen
+
+  # Fast classroom chat, scene actions, and workbench agent
+  course.actions: google:gemini-4-hydrogen
+  classroom: google:gemini-4-hydrogen
+  agent: google:gemini-4-hydrogen
+  agent.title: google:gemini-4-hydrogen
+
   tts: google-tts:gemini-3.8-flash-lite-tts
   video: null
 
