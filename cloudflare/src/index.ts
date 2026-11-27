@@ -30,6 +30,7 @@ export class OpenMAICContainer extends Container<Env> {
       OPENMAIC_SECRET_KEY: env.OPENMAIC_SECRET_KEY,
       OWNER_SINGLE_USER_ID: env.OWNER_SINGLE_USER_ID,
       ASSET_S3_BUCKET: "openmaic-assets",
+      ASSET_BYTE_EGRESS: "redirect",
       AWS_REGION: "auto",
       AWS_ENDPOINT_URL_S3: "https://2f8a5cfdd43166fcab6a74e2723ec923.r2.cloudflarestorage.com",
       AWS_S3_FORCE_PATH_STYLE: "1",
