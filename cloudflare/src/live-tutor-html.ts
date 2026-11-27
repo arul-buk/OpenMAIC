@@ -360,29 +360,36 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   }
 
   function playPcm24k(base64) {
-    if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-    if (playCtx.state === "suspended") playCtx.resume().catch(() => {});
-    const bin = atob(base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const int16 = new Int16Array(bytes.buffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+    try {
+      if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (playCtx.state === "suspended") playCtx.resume().catch(() => {});
+      const bin = atob(base64);
+      const byteLen = bin.length - (bin.length % 2);
+      if (byteLen <= 0) return;
+      const bytes = new Uint8Array(byteLen);
+      for (let i = 0; i < byteLen; i++) bytes[i] = bin.charCodeAt(i);
+      const view = new DataView(bytes.buffer);
+      const samples = byteLen / 2;
+      const float32 = new Float32Array(samples);
+      for (let i = 0; i < samples; i++) float32[i] = view.getInt16(i * 2, true) / 32768;
 
-    const audioBuf = playCtx.createBuffer(1, float32.length, 24000);
-    audioBuf.copyToChannel(float32, 0);
-    const src = playCtx.createBufferSource();
-    src.buffer = audioBuf;
-    src.connect(playCtx.destination);
+      const audioBuf = playCtx.createBuffer(1, samples, 24000);
+      audioBuf.copyToChannel(float32, 0);
+      const src = playCtx.createBufferSource();
+      src.buffer = audioBuf;
+      src.connect(playCtx.destination);
 
-    const now = playCtx.currentTime;
-    const startAt = Math.max(now, nextPlayTime);
-    src.start(startAt);
-    nextPlayTime = startAt + audioBuf.duration;
-    activeSources.push(src);
-    src.onended = () => {
-      activeSources = activeSources.filter(x => x !== src);
-    };
+      const now = playCtx.currentTime;
+      const startAt = nextPlayTime > now ? nextPlayTime : now + 0.04;
+      src.start(startAt);
+      nextPlayTime = startAt + audioBuf.duration;
+      activeSources.push(src);
+      src.onended = () => {
+        activeSources = activeSources.filter(x => x !== src);
+      };
+    } catch (err) {
+      showCaption("Audio playback error: " + (err && err.message ? err.message : err));
+    }
   }
 
   function captureFrameBase64() {
@@ -422,7 +429,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       if (!b64) return;
       ws.send(JSON.stringify({
         realtimeInput: {
-          mediaChunks: [{ mimeType: "image/jpeg", data: b64 }]
+          video: { mimeType: "image/jpeg", data: b64 }
         }
       }));
     }, 1000);
@@ -451,7 +458,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       const pcmBytes = floatTo16BitPCM(down);
       ws.send(JSON.stringify({
         realtimeInput: {
-          mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: bytesToBase64(pcmBytes) }]
+          audio: { mimeType: "audio/pcm;rate=16000", data: bytesToBase64(pcmBytes) }
         }
       }));
     };
@@ -461,9 +468,10 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   }
 
   async function startSession() {
-    // Unlock browser AudioContexts synchronously inside the click gesture
-    if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    // Unlock browser AudioContexts synchronously inside the click gesture using native device sample rate
+    if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (playCtx.state === "suspended") playCtx.resume().catch(() => {});
+    nextPlayTime = playCtx.currentTime;
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
 
@@ -617,7 +625,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     const b64 = captureFrameBase64();
     if (b64) {
       ws.send(JSON.stringify({
-        realtimeInput: { mediaChunks: [{ mimeType: "image/jpeg", data: b64 }] }
+        realtimeInput: { video: { mimeType: "image/jpeg", data: b64 } }
       }));
     }
     tutorBuffer = "";

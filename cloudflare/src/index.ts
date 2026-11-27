@@ -231,9 +231,12 @@ const FLOATING_LAUNCHER_SNIPPET = `
 <div id="openmaic-live-drawer" aria-label="Notebook Camera Tutor">
   <div id="openmaic-live-drawer-bar">
     <span>Gemini Live · Notebook Camera</span>
-    <button id="openmaic-live-drawer-close" type="button" aria-label="Close">&times;</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="/live-tutor" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-size:12px;">Pop out &#8599;</a>
+      <button id="openmaic-live-drawer-close" type="button" aria-label="Close">&times;</button>
+    </div>
   </div>
-  <iframe id="openmaic-live-iframe" allow="camera; microphone; autoplay" src="about:blank"></iframe>
+  <iframe id="openmaic-live-iframe" allow="camera; microphone; autoplay; speaker-selection" src="about:blank"></iframe>
 </div>
 <script>
 (() => {
