@@ -1,5 +1,4 @@
 import { Container, getContainer } from "@cloudflare/containers";
-import { LIVE_TUTOR_HTML } from "./live-tutor-html";
 
 export interface Env {
   OPENMAIC_CONTAINER: DurableObjectNamespace<OpenMAICContainer>;
@@ -26,6 +25,7 @@ export class OpenMAICContainer extends Container<Env> {
       OWNER_SINGLE_USER: "true",
       DATABASE_URL: env.DATABASE_URL,
       GOOGLE_API_KEY: env.GOOGLE_API_KEY,
+      GEMINI_LIVE_MODEL: "models/gemini-3.8-live",
       ACCESS_CODE: env.ACCESS_CODE,
       OPENMAIC_SECRET_KEY: env.OPENMAIC_SECRET_KEY,
       OWNER_SINGLE_USER_ID: env.OWNER_SINGLE_USER_ID,
@@ -40,255 +40,11 @@ export class OpenMAICContainer extends Container<Env> {
   }
 }
 
-const LIVE_AUTH_COOKIE = "openmaic_live_auth";
-
-async function signAccessToken(accessCode: string, secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode("live-tutor:" + accessCode));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function getCookie(request: Request, name: string): string | null {
-  const header = request.headers.get("Cookie");
-  if (!header) return null;
-  for (const part of header.split(";")) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
-  }
-  return null;
-}
-
-async function isLiveAuthorized(request: Request, env: Env): Promise<boolean> {
-  if (!env.ACCESS_CODE) return true;
-  const cookieVal = getCookie(request, LIVE_AUTH_COOKIE);
-  if (!cookieVal) return false;
-  const expected = await signAccessToken(env.ACCESS_CODE, env.OPENMAIC_SECRET_KEY || env.ACCESS_CODE);
-  return cookieVal === expected;
-}
-
-async function handleLiveAuth(request: Request, env: Env): Promise<Response> {
-  if (request.method === "GET") {
-    const ok = await isLiveAuthorized(request, env);
-    return new Response(JSON.stringify({ authorized: ok }), {
-      status: ok ? 200 : 401,
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-    });
-  }
-
-  if (request.method === "POST") {
-    let body: { code?: string } = {};
-    try {
-      body = (await request.json()) as { code?: string };
-    } catch {
-      return new Response("Invalid JSON", { status: 400 });
-    }
-    if (!env.ACCESS_CODE || body.code?.trim() === env.ACCESS_CODE.trim()) {
-      const token = await signAccessToken(env.ACCESS_CODE || "", env.OPENMAIC_SECRET_KEY || env.ACCESS_CODE || "openmaic");
-      return new Response(JSON.stringify({ authorized: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store",
-          "Set-Cookie": `${LIVE_AUTH_COOKIE}=${encodeURIComponent(token)}; Path=/live-tutor; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`,
-        },
-      });
-    }
-    return new Response(JSON.stringify({ authorized: false }), {
-      status: 401,
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-    });
-  }
-
-  return new Response("Method Not Allowed", { status: 405 });
-}
-
-async function handleLiveWebSocket(request: Request, env: Env): Promise<Response> {
-  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket upgrade", { status: 426 });
-  }
-
-  const authorized = await isLiveAuthorized(request, env);
-  const pair = new WebSocketPair();
-  const [client, server] = Object.values(pair);
-
-  if (!authorized) {
-    server.accept();
-    server.close(4401, "Unauthorized");
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  const upstreamUrl =
-    "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" +
-    encodeURIComponent(env.GOOGLE_API_KEY);
-
-  const upstreamResp = await fetch(upstreamUrl, {
-    headers: { Upgrade: "websocket" },
-  });
-  const upstream = upstreamResp.webSocket;
-  if (!upstream) {
-    return new Response("Failed to connect to Gemini Live API", { status: 502 });
-  }
-
-  server.accept();
-  upstream.accept();
-
-  server.addEventListener("message", (event) => {
-    try {
-      upstream.send(event.data);
-    } catch {}
-  });
-  upstream.addEventListener("message", (event) => {
-    try {
-      server.send(event.data);
-    } catch {}
-  });
-
-  const closeBoth = (code?: number, reason?: string) => {
-    try { server.close(code && code >= 1000 && code < 5000 ? code : 1000, reason); } catch {}
-    try { upstream.close(code && code >= 1000 && code < 5000 ? code : 1000, reason); } catch {}
-  };
-
-  server.addEventListener("close", (e) => closeBoth(e.code, e.reason));
-  upstream.addEventListener("close", (e) => closeBoth(e.code, e.reason));
-  server.addEventListener("error", () => closeBoth(1011, "Client error"));
-  upstream.addEventListener("error", () => closeBoth(1011, "Upstream error"));
-
-  return new Response(null, { status: 101, webSocket: client });
-}
-
-const FLOATING_LAUNCHER_SNIPPET = `
-<style id="openmaic-live-camera-style">
-  #openmaic-live-fab {
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    z-index: 2147483640;
-    background: #111827;
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 999px;
-    padding: 10px 16px;
-    font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    cursor: pointer;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.28);
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  #openmaic-live-fab:hover { background: #1f2937; }
-  #openmaic-live-drawer {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    bottom: 16px;
-    width: min(440px, calc(100vw - 32px));
-    z-index: 2147483641;
-    background: #0f1115;
-    border: 1px solid #2a2f3a;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.45);
-    display: none;
-    flex-direction: column;
-  }
-  #openmaic-live-drawer.open { display: flex; }
-  #openmaic-live-drawer-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background: #171a21;
-    border-bottom: 1px solid #2a2f3a;
-    color: #f3f5f8;
-    font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  #openmaic-live-drawer-close {
-    background: transparent;
-    border: none;
-    color: #98a2b3;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 2px 6px;
-  }
-  #openmaic-live-drawer iframe {
-    border: 0;
-    width: 100%;
-    flex: 1;
-  }
-</style>
-<button id="openmaic-live-fab" type="button" title="Open Gemini Live Notebook Camera Tutor">
-  <span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>
-  Notebook Camera
-</button>
-<div id="openmaic-live-drawer" aria-label="Notebook Camera Tutor">
-  <div id="openmaic-live-drawer-bar">
-    <span>Gemini Live · Tutor</span>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <a href="/live-tutor" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-size:12px;">Pop out &#8599;</a>
-      <button id="openmaic-live-drawer-close" type="button" aria-label="Hide" title="Hide (keeps session alive)">&minus;</button>
-    </div>
-  </div>
-  <iframe id="openmaic-live-iframe" allow="camera; microphone; autoplay; speaker-selection; display-capture" src="about:blank"></iframe>
-</div>
+// Background slide audio prefetcher: quietly warms browser cache for all slide audio
+// in the active lesson so mobile/Android tablets play slide-to-slide with zero delay.
+const AUDIO_PREFETCH_SNIPPET = `
 <script>
 (() => {
-  function extractOpenMaicContext() {
-    try {
-      const main = document.querySelector("main") || document.body;
-      const clone = main.cloneNode(true);
-      clone.querySelectorAll("#openmaic-live-fab,#openmaic-live-drawer,script,style,svg").forEach(el => el.remove());
-      const text = (clone.innerText || "").replace(/\s+/g, " ").trim().slice(0, 2400);
-      return {
-        type: "OPENMAIC_CONTEXT",
-        title: document.title || "OpenMAIC",
-        url: location.pathname,
-        text
-      };
-    } catch {
-      return { type: "OPENMAIC_CONTEXT", title: document.title || "OpenMAIC", url: location.pathname, text: "" };
-    }
-  }
-  function initFab() {
-    const fab = document.getElementById("openmaic-live-fab");
-    const drawer = document.getElementById("openmaic-live-drawer");
-    const closeBtn = document.getElementById("openmaic-live-drawer-close");
-    const iframe = document.getElementById("openmaic-live-iframe");
-    if (!fab || !drawer || !closeBtn || !iframe || fab.dataset.bound) return;
-    fab.dataset.bound = "1";
-    const sendContext = () => {
-      if (iframe.contentWindow) iframe.contentWindow.postMessage(extractOpenMaicContext(), location.origin);
-    };
-    fab.addEventListener("click", () => {
-      if (!iframe.src || !iframe.src.includes("/live-tutor")) {
-        iframe.src = "/live-tutor";
-      }
-      drawer.classList.toggle("open");
-      if (drawer.classList.contains("open")) {
-        setTimeout(sendContext, 300);
-      }
-    });
-    closeBtn.addEventListener("click", () => {
-      drawer.classList.remove("open");
-    });
-    window.addEventListener("message", (e) => {
-      if (e.origin === location.origin && e.data && e.data.type === "OPENMAIC_CONTEXT_REQUEST") {
-        sendContext();
-      }
-    });
-  }
-  initFab();
-  window.addEventListener("load", initFab);
-
-  // Background audio prefetcher: quietly warms browser cache for all slide audio in the current lesson
   const prefetched = new Set();
   const prefetchQueue = [];
   let prefetchActive = 0;
@@ -312,11 +68,11 @@ const FLOATING_LAUNCHER_SNIPPET = `
     const resp = await origFetch(...args);
     try {
       const reqUrl = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
-      if (resp.ok && /\/api\/(stages|persistence\/stages)/.test(reqUrl)) {
+      if (resp.ok && /\\/api\\/(stages|persistence\\/stages)/.test(reqUrl)) {
         const ct = resp.headers.get("content-type") || "";
         if (ct.includes("application/json")) {
           resp.clone().text().then((body) => {
-            const matches = body.match(/\/api\/persistence\/assets\/[a-zA-Z0-9_-]+\/content/g);
+            const matches = body.match(/\\/api\\/persistence\\/assets\\/[a-zA-Z0-9_-]+\\/content/g);
             if (matches) {
               for (const m of matches) {
                 if (!prefetched.has(m)) prefetchQueue.push(m);
@@ -333,43 +89,89 @@ const FLOATING_LAUNCHER_SNIPPET = `
 </script>
 `;
 
+async function proxyToContainerWithRetry(
+  container: ReturnType<typeof getContainer<OpenMAICContainer>>,
+  request: Request,
+): Promise<Response> {
+  // Buffer small non-GET request bodies so we can safely retry if the container was asleep
+  const method = request.method.toUpperCase();
+  const hasBody = method !== "GET" && method !== "HEAD";
+  const bodyBuf = hasBody ? await request.clone().arrayBuffer().catch(() => null) : null;
+
+  const buildReq = () =>
+    new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: hasBody && bodyBuf ? bodyBuf.slice(0) : undefined,
+      redirect: "manual",
+    });
+
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const targetReq = (attempt === 0 && !hasBody ? request.clone() : buildReq()) as unknown as Request;
+      const resp = await container.fetch(targetReq);
+      if (resp.status >= 500) {
+        const errText = await resp.clone().text().catch(() => "");
+        if (
+          errText.includes("container is not running") ||
+          errText.startsWith("Error proxying request to container")
+        ) {
+          lastResponse = resp;
+          await container.startAndWaitForPorts();
+          continue;
+        }
+      }
+      return resp;
+    } catch {
+      await container.startAndWaitForPorts().catch(() => {});
+    }
+  }
+
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/")) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: {
+          code: "CONTAINER_STARTING",
+          message: "Classroom container is waking up — please tap Retry in a few seconds.",
+        },
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      },
+    );
+  }
+
+  return (
+    lastResponse ??
+    new Response("Classroom server is waking up — please refresh in a few seconds.", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    })
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // Redirect legacy /live-tutor bookmark to the native Help Me Learn section
     if (url.pathname === "/live-tutor" || url.pathname === "/live-tutor/") {
-      return new Response(LIVE_TUTOR_HTML, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-
-    if (url.pathname === "/live-tutor/auth") {
-      return handleLiveAuth(request, env);
-    }
-
-    if (url.pathname === "/live-tutor/ws") {
-      return handleLiveWebSocket(request, env);
+      return Response.redirect(`${url.origin}/help-me-learn`, 302);
     }
 
     const container = getContainer(env.OPENMAIC_CONTAINER, "main");
-    let response = await container.fetch(request.clone() as unknown as Request);
-    if (response.status === 500) {
-      const errText = await response.clone().text().catch(() => "");
-      if (errText.includes("container is not running")) {
-        await container.startAndWaitForPorts();
-        response = await container.fetch(request);
-      }
-    }
+    const response = await proxyToContainerWithRetry(container, request);
 
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
       return new HTMLRewriter()
         .on("body", {
           element(el) {
-            el.append(FLOATING_LAUNCHER_SNIPPET, { html: true });
+            el.append(AUDIO_PREFETCH_SNIPPET, { html: true });
           },
         })
         .transform(response);
