@@ -2,8 +2,8 @@ name: Sync Upstream OpenMAIC & Redeploy
 
 on:
   schedule:
-    # Daily at 03:00 UTC (08:30 IST)
-    - cron: "0 3 * * *"
+    # Twice a month (1st and 15th) at 03:00 UTC (08:30 IST)
+    - cron: "0 3 1,15 * *"
   workflow_dispatch:
 
 permissions:
