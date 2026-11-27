@@ -25,7 +25,9 @@ jobs:
           node-version: "22"
 
       - name: Build upstream OpenMAIC base image
-        run: docker build --platform linux/amd64 -t openmaic-upstream -f Dockerfile .
+        run: |
+          printf "\ncloudflare\n.github\n" >> .dockerignore
+          docker build --platform linux/amd64 -t openmaic-upstream -f Dockerfile .
 
       - name: Install Cloudflare wrapper dependencies
         working-directory: cloudflare
