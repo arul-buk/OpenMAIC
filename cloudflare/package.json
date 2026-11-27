@@ -6,11 +6,11 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.0.32"
+    "@cloudflare/containers": "latest"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260901.0",
+    "@cloudflare/workers-types": "latest",
     "typescript": "^5.8.0",
-    "wrangler": "^4.40.0"
+    "wrangler": "latest"
   }
 }
