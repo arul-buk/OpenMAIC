@@ -313,7 +313,14 @@ export default {
     }
 
     const container = getContainer(env.OPENMAIC_CONTAINER, "main");
-    const response = await container.fetch(request);
+    let response = await container.fetch(request.clone() as unknown as Request);
+    if (response.status === 500) {
+      const errText = await response.clone().text().catch(() => "");
+      if (errText.includes("container is not running")) {
+        await container.startAndWaitForPorts();
+        response = await container.fetch(request);
+      }
+    }
 
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
