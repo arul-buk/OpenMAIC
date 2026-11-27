@@ -3,6 +3,12 @@
   "name": "openmaic",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-23",
+  "routes": [
+    {
+      "pattern": "study.stayboba.com",
+      "custom_domain": true
+    }
+  ],
   "observability": {
     "enabled": true
   },
