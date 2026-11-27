@@ -1,0 +1,16 @@
+{
+  "name": "openmaic-cloudflare-container",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.0.32"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260901.0",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.40.0"
+  }
+}

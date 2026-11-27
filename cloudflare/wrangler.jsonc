@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmaic",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-23",
+  "observability": {
+    "enabled": true
+  },
+  "containers": [
+    {
+      "class_name": "OpenMAICContainer",
+      "image": "../Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMAIC_CONTAINER",
+        "class_name": "OpenMAICContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["OpenMAICContainer"]
+    }
+  ]
+}
