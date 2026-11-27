@@ -1,23 +1,28 @@
-# OpenMAIC model configuration — Gemini-only, locked for family evaluation
+# OpenMAIC model configuration — Gemini 4 Neon (medium effort), locked for family evaluation
 # Contains no secrets; runtime credentials are injected via Cloudflare Worker Secrets.
 providers:
   google:
     preset: google
     apiKey: ${GOOGLE_API_KEY}
     models:
+      - gemini-4-neon
+      - gemini-3.8-flash
       - gemini-2.5-flash
-      - gemini-2.5-pro
-      - gemini-3.5-flash
 
   google-tts:
     preset: google-tts
     apiKey: ${GOOGLE_API_KEY}
     models:
-      - gemini-2.5-flash-preview-tts
+      - gemini-3.8-flash-lite-tts
+      - gemini-3.8-flash-tts
 
 slots:
-  llm: google:gemini-2.5-flash
-  tts: google-tts:gemini-2.5-flash-preview-tts
+  llm:
+    model: google:gemini-4-neon
+    thinking:
+      effort: medium
+    fallback: google:gemini-3.8-flash
+  tts: google-tts:gemini-3.8-flash-lite-tts
   video: null
 
 # Prevent visitors from adding external keys or unapproved providers
