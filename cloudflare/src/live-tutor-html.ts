@@ -513,6 +513,17 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
           },
           outputAudioTranscription: {},
           inputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+              prefixPaddingMs: 300
+            },
+            activityHandling: "START_OF_ACTIVITY_INTERRUPTS"
+          },
+          contextWindowCompression: {
+            triggerTokens: 16000,
+            slidingWindow: { targetTokens: 8000 }
+          },
           systemInstruction: {
             parts: [{ text: systemPrompt }]
           }

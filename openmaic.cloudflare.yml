@@ -1,4 +1,5 @@
-# OpenMAIC model configuration — Neon (medium effort) for content creation, Hydrogen for fast chat/actions
+# OpenMAIC model configuration — Neon (medium effort) for content creation, Hydrogen for fast chat/actions,
+# Gemini TTS for emotive narration, Browser Native ASR for fast voice input, Nano Banana for slide images, unpdf for PDFs.
 # Contains no secrets; runtime credentials are injected via Cloudflare Worker Secrets.
 providers:
   google:
@@ -15,6 +16,19 @@ providers:
     models:
       - gemini-3.8-flash-lite-tts
       - gemini-3.8-flash-tts
+
+  nano-banana:
+    preset: nano-banana
+    apiKey: ${GOOGLE_API_KEY}
+    models:
+      - gemini-nano-banana-2.1
+      - gemini-3-pro-image
+
+  browser-asr:
+    preset: browser-native
+
+  pdf-parser:
+    preset: unpdf
 
 slots:
   # Default fast model for lightweight tasks, research, and agents
@@ -40,7 +54,11 @@ slots:
   agent: google:gemini-4-hydrogen
   agent.title: google:gemini-4-hydrogen
 
+  # Fast voice input + emotive Gemini narration + slide images + PDF parsing
+  asr: browser-asr
   tts: google-tts:gemini-3.8-flash-lite-tts
+  image: nano-banana:gemini-nano-banana-2.1
+  document: pdf-parser
   video: null
 
 # Prevent visitors from adding external keys or unapproved providers
