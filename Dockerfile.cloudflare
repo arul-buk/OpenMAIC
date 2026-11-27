@@ -1,0 +1,4 @@
+# Thin overlay on top of upstream OpenMAIC Dockerfile (built as openmaic-upstream).
+# Keeping upstream Dockerfile untouched ensures zero merge conflicts during automatic upstream syncs.
+FROM openmaic-upstream
+COPY --chown=nextjs:nodejs openmaic.cloudflare.yml /app/openmaic.yml

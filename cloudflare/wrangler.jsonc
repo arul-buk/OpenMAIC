@@ -9,7 +9,7 @@
   "containers": [
     {
       "class_name": "OpenMAICContainer",
-      "image": "../Dockerfile",
+      "image": "../Dockerfile.cloudflare",
       "instance_type": "standard-1",
       "max_instances": 2
     }

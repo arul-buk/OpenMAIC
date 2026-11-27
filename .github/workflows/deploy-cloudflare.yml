@@ -1,10 +1,15 @@
 name: Deploy OpenMAIC to Cloudflare Containers
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
       - cloudflare-deploy
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -18,6 +23,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Build upstream OpenMAIC base image
+        run: docker build --platform linux/amd64 -t openmaic-upstream -f Dockerfile .
 
       - name: Install Cloudflare wrapper dependencies
         working-directory: cloudflare

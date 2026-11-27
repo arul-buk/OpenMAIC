@@ -1,0 +1,57 @@
+name: Sync Upstream OpenMAIC & Redeploy
+
+on:
+  schedule:
+    # Daily at 03:00 UTC (08:30 IST)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.merge.outputs.updated }}
+    steps:
+      - name: Checkout cloudflare-deploy branch
+        uses: actions/checkout@v4
+        with:
+          ref: cloudflare-deploy
+          fetch-depth: 0
+
+      - name: Fetch upstream THU-MAIC/OpenMAIC and merge into main & cloudflare-deploy
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/THU-MAIC/OpenMAIC.git
+          git fetch upstream main
+
+          BEFORE=$(git rev-parse HEAD)
+
+          # Keep fork's main branch in sync with upstream/main
+          git checkout -B main upstream/main
+          git push origin main --force-with-lease || true
+
+          # Merge upstream/main into cloudflare-deploy (conflict-free since no upstream files are modified)
+          git checkout cloudflare-deploy
+          git merge --no-edit upstream/main
+
+          AFTER=$(git rev-parse HEAD)
+          if [ "$BEFORE" != "$AFTER" ]; then
+            git push origin cloudflare-deploy
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "Merged new upstream commits ($BEFORE -> $AFTER)."
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with THU-MAIC/OpenMAIC."
+          fi
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.updated == 'true'
+    uses: ./.github/workflows/deploy-cloudflare.yml
+    secrets: inherit
