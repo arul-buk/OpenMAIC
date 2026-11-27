@@ -229,19 +229,24 @@ const FLOATING_LAUNCHER_SNIPPET = `
 </div>
 <script>
 (() => {
-  const fab = document.getElementById("openmaic-live-fab");
-  const drawer = document.getElementById("openmaic-live-drawer");
-  const closeBtn = document.getElementById("openmaic-live-drawer-close");
-  const iframe = document.getElementById("openmaic-live-iframe");
-  if (!fab || !drawer || !closeBtn || !iframe) return;
-  fab.addEventListener("click", () => {
-    if (iframe.src === "about:blank") iframe.src = "/live-tutor";
-    drawer.classList.add("open");
-  });
-  closeBtn.addEventListener("click", () => {
-    drawer.classList.remove("open");
-    iframe.src = "about:blank";
-  });
+  function initFab() {
+    const fab = document.getElementById("openmaic-live-fab");
+    const drawer = document.getElementById("openmaic-live-drawer");
+    const closeBtn = document.getElementById("openmaic-live-drawer-close");
+    const iframe = document.getElementById("openmaic-live-iframe");
+    if (!fab || !drawer || !closeBtn || !iframe || fab.dataset.bound) return;
+    fab.dataset.bound = "1";
+    fab.addEventListener("click", () => {
+      if (!iframe.src || !iframe.src.includes("/live-tutor")) iframe.src = "/live-tutor";
+      drawer.classList.add("open");
+    });
+    closeBtn.addEventListener("click", () => {
+      drawer.classList.remove("open");
+      iframe.src = "about:blank";
+    });
+  }
+  initFab();
+  window.addEventListener("load", initFab);
 })();
 </script>
 `;

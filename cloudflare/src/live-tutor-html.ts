@@ -54,7 +54,21 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   .dot.live { background: var(--ok); box-shadow: 0 0 10px rgba(16,185,129,0.7); }
   .dot.connecting { background: var(--warn); }
   .dot.error { background: var(--danger); }
+  .status-wrap { display: flex; align-items: center; gap: 8px; }
   .status-text { font-size: 12px; color: var(--muted); }
+  .meter {
+    width: 44px;
+    height: 6px;
+    background: #222631;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--ok);
+    transition: width 0.08s linear;
+  }
 
   .stage {
     position: relative;
@@ -97,12 +111,12 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   }
   .lock-card input, .topic-input {
     width: 100%;
-    padding: 10px 12px;
+    padding: 9px 12px;
     border-radius: 10px;
     border: 1px solid var(--border);
     background: #0c0e12;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
     outline: none;
   }
   .lock-card input:focus, .topic-input:focus { border-color: var(--accent); }
@@ -112,26 +126,27 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     left: 12px;
     right: 12px;
     bottom: 12px;
-    background: rgba(15, 17, 21, 0.78);
+    background: rgba(15, 17, 21, 0.84);
     backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 12px;
     padding: 10px 14px;
     font-size: 13px;
     color: #eef2ff;
-    max-height: 110px;
+    max-height: 130px;
     overflow-y: auto;
     display: none;
+    white-space: pre-wrap;
   }
   .captions.show { display: block; }
 
   .controls {
     background: var(--panel);
     border-top: 1px solid var(--border);
-    padding: 12px 14px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
   .btn-row {
     display: flex;
@@ -144,7 +159,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     border: 1px solid var(--border);
     background: #222631;
     color: var(--text);
-    padding: 9px 14px;
+    padding: 9px 12px;
     border-radius: 10px;
     font-size: 13px;
     font-weight: 600;
@@ -164,11 +179,16 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     flex: 1;
   }
   button.primary:hover { background: var(--accent-hover); }
+  button.check-btn {
+    background: #059669;
+    border-color: #059669;
+    color: #fff;
+  }
+  button.check-btn:hover { background: #047857; }
   button.danger {
     background: var(--danger);
     border-color: var(--danger);
     color: #fff;
-    flex: 1;
   }
   button.active-off {
     background: rgba(239, 68, 68, 0.18);
@@ -184,7 +204,10 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       <span id="dot" class="dot"></span>
       <span>Notebook Camera Tutor</span>
     </div>
-    <span id="status" class="status-text">Ready</span>
+    <div class="status-wrap">
+      <div class="meter" title="Microphone level"><div id="meterFill" class="meter-fill"></div></div>
+      <span id="status" class="status-text">Ready</span>
+    </div>
   </header>
 
   <div class="stage">
@@ -208,7 +231,8 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     <input id="topicInput" class="topic-input" type="text" placeholder="Optional topic (e.g., Fractions, Long Division, Science)" />
     <div class="btn-row">
       <button id="startBtn" class="primary">Start Live Session</button>
-      <button id="stopBtn" class="danger" style="display:none">Stop Session</button>
+      <button id="checkBtn" class="check-btn" style="display:none">Check Notebook</button>
+      <button id="stopBtn" class="danger" style="display:none">Stop</button>
       <button id="micBtn" disabled>Mic On</button>
       <button id="camBtn" disabled>Cam On</button>
       <button id="flipBtn" disabled>Flip</button>
@@ -226,6 +250,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   const lockErr = document.getElementById("lockErr");
   const topicInput = document.getElementById("topicInput");
   const startBtn = document.getElementById("startBtn");
+  const checkBtn = document.getElementById("checkBtn");
   const stopBtn = document.getElementById("stopBtn");
   const micBtn = document.getElementById("micBtn");
   const camBtn = document.getElementById("camBtn");
@@ -233,6 +258,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   const dot = document.getElementById("dot");
   const statusEl = document.getElementById("status");
   const captionsEl = document.getElementById("captions");
+  const meterFill = document.getElementById("meterFill");
 
   let ws = null;
   let mediaStream = null;
@@ -245,13 +271,14 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   let camPaused = false;
   let facingMode = "environment";
   let unlocked = false;
+  let tutorBuffer = "";
 
   function setStatus(text, state) {
     statusEl.textContent = text;
     dot.className = "dot" + (state ? " " + state : "");
   }
 
-  function addCaption(text) {
+  function showCaption(text) {
     if (!text) return;
     captionsEl.classList.add("show");
     captionsEl.textContent = text;
@@ -289,6 +316,10 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     } else {
       lockErr.textContent = "Invalid access code.";
     }
+  });
+
+  codeInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") unlockBtn.click();
   });
 
   function floatTo16BitPCM(float32) {
@@ -330,7 +361,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
 
   function playPcm24k(base64) {
     if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-    if (playCtx.state === "suspended") playCtx.resume();
+    if (playCtx.state === "suspended") playCtx.resume().catch(() => {});
     const bin = atob(base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -354,6 +385,18 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     };
   }
 
+  function captureFrameBase64() {
+    if (!video.videoWidth || !video.videoHeight) return null;
+    const maxDim = 768;
+    const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+    return dataUrl.split(",")[1];
+  }
+
   async function startCamera() {
     if (mediaStream) {
       mediaStream.getTracks().forEach(t => t.stop());
@@ -367,6 +410,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     }
     video.srcObject = mediaStream;
+    await video.play().catch(() => {});
     placeholder.style.display = "none";
   }
 
@@ -374,15 +418,8 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     if (frameTimer) clearInterval(frameTimer);
     frameTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN || camPaused) return;
-      if (!video.videoWidth || !video.videoHeight) return;
-      const maxDim = 768;
-      const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
-      canvas.width = Math.round(video.videoWidth * scale);
-      canvas.height = Math.round(video.videoHeight * scale);
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-      const b64 = dataUrl.split(",")[1];
+      const b64 = captureFrameBase64();
+      if (!b64) return;
       ws.send(JSON.stringify({
         realtimeInput: {
           mediaChunks: [{ mimeType: "image/jpeg", data: b64 }]
@@ -392,12 +429,24 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
   }
 
   function startMicLoop() {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     const source = audioCtx.createMediaStreamSource(mediaStream);
     const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+
     processor.onaudioprocess = (e) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN || micMuted) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN || micMuted) {
+        meterFill.style.width = "0%";
+        return;
+      }
       const input = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+      const rms = Math.sqrt(sum / input.length);
+      meterFill.style.width = Math.min(100, Math.round(rms * 450)) + "%";
+
       const down = downsample(input, audioCtx.sampleRate, 16000);
       const pcmBytes = floatTo16BitPCM(down);
       ws.send(JSON.stringify({
@@ -407,10 +456,17 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       }));
     };
     source.connect(processor);
-    processor.connect(audioCtx.destination);
+    processor.connect(silentGain);
+    silentGain.connect(audioCtx.destination);
   }
 
   async function startSession() {
+    // Unlock browser AudioContexts synchronously inside the click gesture
+    if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    if (playCtx.state === "suspended") playCtx.resume().catch(() => {});
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+
     if (!unlocked) {
       await checkAuth();
       if (!unlocked) { lockBox.style.display = "flex"; return; }
@@ -423,7 +479,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
     } catch (err) {
       setStatus("Camera/Mic blocked", "error");
       startBtn.disabled = false;
-      addCaption("Please allow camera and microphone permissions to use the Notebook Camera Tutor.");
+      showCaption("Please allow camera and microphone permissions in your browser to use the Notebook Camera Tutor.");
       return;
     }
 
@@ -447,6 +503,8 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
           generationConfig: {
             responseModalities: ["AUDIO"]
           },
+          outputAudioTranscription: {},
+          inputAudioTranscription: {},
           systemInstruction: {
             parts: [{ text: systemPrompt }]
           }
@@ -462,18 +520,28 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
         if (msg.setupComplete) {
           setStatus("Live · Watching Notebook", "live");
           startBtn.style.display = "none";
+          checkBtn.style.display = "inline-flex";
           stopBtn.style.display = "inline-flex";
           micBtn.disabled = false;
           camBtn.disabled = false;
           flipBtn.disabled = false;
           startFrameLoop();
           startMicLoop();
-          addCaption("Connected! Show your notebook to the camera and speak whenever you'd like a hint.");
+          showCaption("Connected! Listening and watching your notebook...");
+
+          // Trigger an immediate friendly greeting so the user knows audio is working
+          ws.send(JSON.stringify({
+            clientContent: {
+              turns: [{ role: "user", parts: [{ text: "Hi! I just turned on my notebook camera. Greet me warmly in one short sentence and let me know you're ready to look at my notebook." }] }],
+              turnComplete: true
+            }
+          }));
           return;
         }
 
         if (msg.serverContent?.interrupted) {
           stopPlayback();
+          tutorBuffer = "";
         }
 
         const parts = msg.serverContent?.modelTurn?.parts || [];
@@ -482,11 +550,19 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
             playPcm24k(p.inlineData.data);
           }
           if (p.text) {
-            addCaption(p.text);
+            tutorBuffer += p.text;
+            showCaption("Tutor: " + tutorBuffer);
           }
         }
         if (msg.serverContent?.outputTranscription?.text) {
-          addCaption(msg.serverContent.outputTranscription.text);
+          tutorBuffer += msg.serverContent.outputTranscription.text;
+          showCaption("Tutor: " + tutorBuffer);
+        }
+        if (msg.serverContent?.inputTranscription?.text) {
+          showCaption("You: " + msg.serverContent.inputTranscription.text);
+        }
+        if (msg.serverContent?.turnComplete) {
+          tutorBuffer = "";
         }
       } catch {}
     };
@@ -500,7 +576,7 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
         unlocked = false;
         lockBox.style.display = "flex";
       }
-      stopSession(e.code === 4401 ? "Locked — enter access code" : "Disconnected");
+      stopSession(e.code === 4401 ? "Locked — enter access code" : "Disconnected (" + e.code + ")");
     };
   }
 
@@ -514,9 +590,11 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
       mediaStream = null;
     }
     video.srcObject = null;
+    meterFill.style.width = "0%";
     placeholder.style.display = "flex";
     startBtn.style.display = "inline-flex";
     startBtn.disabled = false;
+    checkBtn.style.display = "none";
     stopBtn.style.display = "none";
     micBtn.disabled = true;
     camBtn.disabled = true;
@@ -532,6 +610,25 @@ export const LIVE_TUTOR_HTML = `<!DOCTYPE html>
 
   startBtn.addEventListener("click", startSession);
   stopBtn.addEventListener("click", () => stopSession("Stopped"));
+
+  checkBtn.addEventListener("click", () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (playCtx && playCtx.state === "suspended") playCtx.resume().catch(() => {});
+    const b64 = captureFrameBase64();
+    if (b64) {
+      ws.send(JSON.stringify({
+        realtimeInput: { mediaChunks: [{ mimeType: "image/jpeg", data: b64 }] }
+      }));
+    }
+    tutorBuffer = "";
+    showCaption("Looking closely at your notebook...");
+    ws.send(JSON.stringify({
+      clientContent: {
+        turns: [{ role: "user", parts: [{ text: "Please look closely at what is in my notebook right now and guide me on my next step." }] }],
+        turnComplete: true
+      }
+    }));
+  });
 
   micBtn.addEventListener("click", () => {
     micMuted = !micMuted;
