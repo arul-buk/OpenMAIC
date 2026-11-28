@@ -1,3 +1,5 @@
+import type { NcertSourceRef } from '@/lib/ncert/types';
+
 export type LearningMode = 'theory-then-solve' | 'solve-only';
 
 export interface TheorySlide {
@@ -24,6 +26,8 @@ export interface HelpMeLearnPlan {
   mode: LearningMode;
   slides: TheorySlide[];
   problem: PracticeProblem;
+  ncertSources?: NcertSourceRef[];
+  ncertContext?: string;
 }
 
 export interface WhiteboardStepItem {

@@ -15,6 +15,7 @@ import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess, modelAuthorizationResponse } from '@/lib/server/api-response';
 import { resolveModelFromRequest, type ResolvedModel } from '@/lib/server/resolve-model';
 import { isLikelyTextOnlyModel } from '@/lib/live-tutor/model-capabilities';
+import { buildNcertGroundingContext } from '@/lib/ncert/storage';
 import type {
   HelpMeLearnPlan,
   LearningMode,
@@ -35,6 +36,8 @@ interface PlanRequest {
   mode?: LearningMode;
   imageDataUrl?: string;
   language?: string;
+  ncertChapters?: string[];
+  ncertBucket?: string;
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> | null {
@@ -56,11 +59,14 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as PlanRequest;
     const rawTopic = body.topic?.trim() ?? '';
     const hasImage = Boolean(body.imageDataUrl && body.imageDataUrl.startsWith('data:image/'));
-    if (!rawTopic && !hasImage) {
+    const hasNcertSelection =
+      (Array.isArray(body.ncertChapters) && body.ncertChapters.length > 0) ||
+      Boolean(body.ncertBucket?.trim());
+    if (!rawTopic && !hasImage && !hasNcertSelection) {
       return apiError(
         'MISSING_REQUIRED_FIELD',
         400,
-        'Please enter a topic or attach a problem photo',
+        'Please enter a topic, pick an NCERT chapter, or attach a problem photo',
       );
     }
     if (body.imageDataUrl && body.imageDataUrl.length > 8_000_000) {
@@ -92,6 +98,21 @@ export async function POST(req: NextRequest) {
 
     const { model: languageModel, thinkingConfig, serverManaged } = resolved;
 
+    const ncertGrounding = await buildNcertGroundingContext({
+      query: rawTopic,
+      chapterPaths: body.ncertChapters,
+      bucketName: body.ncertBucket,
+      maxChapters: 3,
+      maxCharsTotal: 11_000,
+    });
+
+    const ncertInstruction = ncertGrounding.promptContext
+      ? `\n\nNCERT CURRICULUM GROUNDING (Classes 7-12 cross-class alignment):
+The student studies concepts across a cross-class NCERT progression (Class 7 to Class 12). Ground your definitions, notation, formulas, terminology, worked examples, and practice problem directly in the NCERT textbook reference below. Focus on conceptual depth and content alignment across the topic progression rather than restricting strictly to one grade.
+
+${ncertGrounding.promptContext}`
+      : '';
+
     const langHint = body.language
       ? `Write all student-facing text in locale "${body.language}".`
       : '';
@@ -99,7 +120,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt =
       mode === 'theory-then-solve'
         ? `You are a supportive master teacher helping a student learn a topic from first principles and then solve a problem.
-${langHint}
+${langHint}${ncertInstruction}
 Generate 3 to 4 concise, visual theory slides that build intuition step by step, followed by 1 practice problem (use the student's exact problem if they provided one, or create a clear practice problem on the topic).
 Formulas in "formulaLatex" must be valid KaTeX/LaTeX WITHOUT surrounding $ or $$ delimiters.
 Reply with valid JSON only:
@@ -125,7 +146,7 @@ Reply with valid JSON only:
   }
 }`
         : `You are a supportive Socratic tutor preparing to guide a student directly through solving their problem step by step on a whiteboard.
-${langHint}
+${langHint}${ncertInstruction}
 Extract the exact problem from the student's prompt or photo (or create a focused problem if they only named a topic). Do NOT solve it yet — only state the problem clearly and give a gentle starting hint.
 Reply with valid JSON only:
 {
@@ -138,9 +159,14 @@ Reply with valid JSON only:
   }
 }`;
 
+    const defaultNcertPrompt =
+      ncertGrounding.sources.length > 0
+        ? `Teach and practice the NCERT topic: ${ncertGrounding.sources.map((s) => `Class ${s.classLevel} ${s.subject} — ${s.chapterTitle}`).join('; ')}`
+        : 'Read the problem shown in the attached image and prepare the study session.';
+
     const promptText = rawTopic
       ? `Student request: ${rawTopic}`
-      : 'Read the problem shown in the attached image and prepare the study session.';
+      : defaultNcertPrompt;
 
     const messages: ModelMessage[] = hasImage
       ? [
@@ -237,6 +263,12 @@ Reply with valid JSON only:
       mode,
       slides,
       problem,
+      ...(ncertGrounding.sources.length > 0
+        ? {
+            ncertSources: ncertGrounding.sources,
+            ncertContext: ncertGrounding.tutorContext,
+          }
+        : {}),
     };
 
     return apiSuccess({ plan });

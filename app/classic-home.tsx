@@ -31,6 +31,7 @@ import {
   Upload,
   Sparkles,
   Atom,
+  BookMarked,
   Compass,
   Camera,
   X,
@@ -236,6 +237,38 @@ function HomePage() {
       }
     } catch {
       /* localStorage unavailable */
+    }
+
+    // Pre-fill requirement when launched from the NCERT Knowledge Base (/ncert)
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ncertChapter = params.get('ncertChapter')?.trim();
+      if (ncertChapter) {
+        fetch(`/api/ncert/chapter?path=${encodeURIComponent(ncertChapter)}&includeText=1`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((payload) => {
+            const data = payload?.data ?? payload;
+            const ch = data?.chapter;
+            if (!ch) return;
+            const parts = [
+              `Create an interactive lesson aligned with NCERT Class ${ch.class} ${ch.subject}: "${ch.chapter_title}" (${ch.book_title}, Chapter ${ch.chapter_number}).`,
+              `Cross-class topic progression: ${ch.topic_bucket}${data?.topicBucket?.classProgression ? ` (${data.topicBucket.classProgression})` : ''}.`,
+              Array.isArray(ch.subtopics) && ch.subtopics.length > 0
+                ? `Subtopics: ${ch.subtopics.join('; ')}.`
+                : '',
+              Array.isArray(ch.secondary_tags) && ch.secondary_tags.length > 0
+                ? `Key concepts: ${ch.secondary_tags.join(', ')}.`
+                : '',
+              typeof data?.textExcerpt === 'string' && data.textExcerpt.trim()
+                ? `\nNCERT Textbook Reference:\n${data.textExcerpt.slice(0, 2500)}`
+                : '',
+            ].filter(Boolean);
+            setForm((prev) => ({ ...prev, requirement: parts.join('\n') }));
+          })
+          .catch(() => {});
+      }
+    } catch {
+      /* ignore URL parsing errors */
     }
   }, []);
 
@@ -1011,8 +1044,8 @@ function HomePage() {
           </div>
         </div>
 
-        {/* Help Me Learn guided study & camera tutor card */}
-        <div className="mt-3 w-full flex justify-center">
+        {/* Help Me Learn & NCERT Knowledge Base cards */}
+        <div className="mt-3 w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <Link
             href="/help-me-learn"
             data-testid="home-help-me-learn"
@@ -1024,10 +1057,10 @@ function HomePage() {
               </div>
               <div className="min-w-0 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm font-semibold text-foreground">
+                  <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
                     {t('helpMeLearn.homeCardTitle')}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300 shrink-0">
                     <Camera className="size-2.5" />
                     {t('helpMeLearn.homeCardBadge')}
                   </span>
@@ -1038,6 +1071,32 @@ function HomePage() {
               </div>
             </div>
             <ChevronRight className="size-4 text-muted-foreground group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </Link>
+
+          <Link
+            href="/ncert"
+            data-testid="home-ncert-kb"
+            className="w-full flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 dark:border-emerald-800/50 bg-white/75 dark:bg-slate-900/70 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 backdrop-blur-md px-4 py-3 shadow-xs transition-all group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="size-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <BookMarked className="size-4" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
+                    NCERT Textbooks KB
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
+                    7–12
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
+                  23 cross-class topics · 25 books · PDFs & lessons
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all shrink-0" />
           </Link>
         </div>
 

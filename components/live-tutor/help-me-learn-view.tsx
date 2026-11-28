@@ -1,15 +1,17 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
   ArrowRight,
+  BookMarked,
   BookOpen,
   Camera,
   CheckCircle2,
   Compass,
   Eraser,
+  ExternalLink,
   ImagePlus,
   Loader2,
   PencilLine,
@@ -68,6 +70,9 @@ export function HelpMeLearnView() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [topicInput, setTopicInput] = useState('');
+  const [selectedNcertChapters, setSelectedNcertChapters] = useState<string[]>([]);
+  const [selectedNcertBucket, setSelectedNcertBucket] = useState<string | null>(null);
+  const [selectedNcertLabel, setSelectedNcertLabel] = useState<string | null>(null);
   const [mode, setMode] = useState<LearningMode>('theory-then-solve');
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -77,6 +82,29 @@ export function HelpMeLearnView() {
   const [activeStage, setActiveStage] = useState<'theory' | 'solve'>('theory');
   const [slideIndex, setSlideIndex] = useState(0);
   const [wbSteps, setWbSteps] = useState<WhiteboardStepItem[]>([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const chapterParam = params.get('chapter')?.trim();
+    const bucketParam = params.get('bucket')?.trim();
+    const topicParam = params.get('topic')?.trim();
+    const labelParam = params.get('label')?.trim();
+
+    if (chapterParam) {
+      setSelectedNcertChapters([chapterParam]);
+      setSelectedNcertLabel(labelParam || chapterParam.split('/').pop()?.replace(/\.pdf$/i, '') || 'NCERT Chapter');
+    }
+    if (bucketParam) {
+      setSelectedNcertBucket(bucketParam);
+      if (!chapterParam) {
+        setSelectedNcertLabel(labelParam || `${bucketParam} (Classes 7–12)`);
+      }
+    }
+    if (topicParam) {
+      setTopicInput(topicParam);
+    }
+  }, []);
 
   const whiteboard = useMemo(() => buildWhiteboardFromSteps(wbSteps), [wbSteps]);
 
@@ -123,7 +151,8 @@ export function HelpMeLearnView() {
   }, []);
 
   const handleStartLearning = async () => {
-    if (!topicInput.trim() && !attachedImage) return;
+    const hasNcert = selectedNcertChapters.length > 0 || Boolean(selectedNcertBucket);
+    if (!topicInput.trim() && !attachedImage && !hasNcert) return;
     setLoadingPlan(true);
     setPlanError(null);
 
@@ -136,6 +165,8 @@ export function HelpMeLearnView() {
           mode,
           imageDataUrl: attachedImage ?? undefined,
           language: locale,
+          ...(selectedNcertChapters.length > 0 ? { ncertChapters: selectedNcertChapters } : {}),
+          ...(selectedNcertBucket ? { ncertBucket: selectedNcertBucket } : {}),
         }),
       });
       const json = (await resp.json()) as {
@@ -194,8 +225,14 @@ export function HelpMeLearnView() {
 
   const theorySummaryContext = useMemo(() => {
     if (!plan) return '';
-    return plan.slides
+    const slideSummary = plan.slides
       .map((s, i) => `Slide ${i + 1} (${s.title}): ${s.summary} ${s.keyPoints.join('; ')}`)
+      .join('\n');
+    return [
+      slideSummary,
+      plan.ncertContext ? `\nNCERT Reference (Classes 7–12):\n${plan.ncertContext}` : '',
+    ]
+      .filter(Boolean)
       .join('\n');
   }, [plan]);
 
@@ -351,6 +388,43 @@ export function HelpMeLearnView() {
 
             {/* Topic / Problem Input + Photo Upload */}
             <div className="space-y-3">
+              {/* NCERT Knowledge Base Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-950/25 px-3.5 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BookMarked className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  {selectedNcertLabel ? (
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-200 truncate">
+                        NCERT KB: {selectedNcertLabel}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedNcertChapters([]);
+                          setSelectedNcertBucket(null);
+                          setSelectedNcertLabel(null);
+                        }}
+                        className="p-0.5 rounded-full hover:bg-emerald-200/70 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300"
+                        aria-label="Clear NCERT selection"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-emerald-800 dark:text-emerald-200">
+                      Auto-aligned with <strong>NCERT Textbooks (Classes 7–12)</strong>
+                    </span>
+                  )}
+                </div>
+                <Link
+                  href="/ncert"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline shrink-0"
+                >
+                  Browse Topics
+                  <ArrowRight className="size-3" />
+                </Link>
+              </div>
+
               <textarea
                 value={topicInput}
                 onChange={(e) => setTopicInput(e.target.value)}
@@ -401,7 +475,13 @@ export function HelpMeLearnView() {
 
                 <Button
                   type="button"
-                  disabled={loadingPlan || (!topicInput.trim() && !attachedImage)}
+                  disabled={
+                    loadingPlan ||
+                    (!topicInput.trim() &&
+                      !attachedImage &&
+                      selectedNcertChapters.length === 0 &&
+                      !selectedNcertBucket)
+                  }
                   onClick={() => void handleStartLearning()}
                   className="rounded-xl h-11 px-6 bg-violet-600 hover:bg-violet-700 text-white gap-2 font-semibold"
                 >
@@ -420,7 +500,31 @@ export function HelpMeLearnView() {
         </main>
       ) : (
         /* Step 2: Active Study Session (Theory Slides + Guided Whiteboard & Camera) */
-        <main className="flex-1 min-h-0 flex flex-col p-3 sm:p-5">
+        <main className="flex-1 min-h-0 flex flex-col p-3 sm:p-5 gap-3">
+          {/* Grounded NCERT Chapter Badges */}
+          {plan.ncertSources && plan.ncertSources.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-1">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                <BookMarked className="size-3.5" />
+                NCERT KB:
+              </span>
+              {plan.ncertSources.map((src) => (
+                <a
+                  key={src.relativePath}
+                  href={src.pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/80 dark:bg-emerald-950/40 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                  title={`Open NCERT PDF: ${src.bookTitle} — Ch. ${src.chapterNumber}: ${src.chapterTitle}`}
+                >
+                  <span>
+                    Class {src.classLevel} {src.subject} · Ch. {src.chapterNumber}: {src.chapterTitle}
+                  </span>
+                  <ExternalLink className="size-3 opacity-70" />
+                </a>
+              ))}
+            </div>
+          )}
           {/* Theory Slides View */}
           {activeStage === 'theory' && currentSlide && (
             <div className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto gap-4">
