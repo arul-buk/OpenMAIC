@@ -34,6 +34,9 @@ import { generationRunConfig } from '@/lib/server/generation/run/config';
 import { startGenerationRun, startRefusal } from '@/lib/server/generation/run/start';
 import { listActiveGenerationRuns, runSnapshot } from '@/lib/server/generation/run/store';
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
+import { profileHasKbAccess } from '@/lib/server/access-profiles-shared';
+import { resolveAccessProfileFromRequest } from '@/lib/server/identity/profile-access';
+import { buildNcertGroundingContext } from '@/lib/ncert/storage';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('GenerationRuns API');
@@ -50,8 +53,42 @@ export async function POST(req: NextRequest) {
     const parsed = parseRunInput(body.value);
     if (!parsed.ok) return ownerApiError('INVALID_REQUEST', 400, parsed.message, responseHeaders);
 
+    let runInput = parsed.value;
+    const rawObj =
+      body.value && typeof body.value === 'object'
+        ? (body.value as Record<string, unknown>)
+        : {};
+    const ncertBucket =
+      typeof rawObj.ncertBucket === 'string' && rawObj.ncertBucket.trim()
+        ? rawObj.ncertBucket.trim()
+        : undefined;
+    const ncertChapters = Array.isArray(rawObj.ncertChapters)
+      ? rawObj.ncertChapters.filter(
+          (p): p is string => typeof p === 'string' && p.trim().length > 0,
+        )
+      : [];
+
+    if (ncertBucket || ncertChapters.length > 0) {
+      const activeProfile = resolveAccessProfileFromRequest(req);
+      if (profileHasKbAccess(activeProfile, 'ncert')) {
+        const grounding = await buildNcertGroundingContext({
+          bucketName: ncertBucket,
+          chapterPaths: ncertChapters,
+          query: runInput.requirement,
+          maxChapters: 3,
+          maxCharsTotal: 9000,
+        });
+        if (grounding.promptContext) {
+          runInput = {
+            ...runInput,
+            requirement: `${runInput.requirement}\n\n[NCERT Curriculum Reference (Classes 7–12)]\nAlign definitions, formulas, notation, and worked examples with the following NCERT textbook content:\n\n${grounding.promptContext}`,
+          };
+        }
+      }
+    }
+
     try {
-      const run = await startGenerationRun(ownerId, parsed.value, {
+      const run = await startGenerationRun(ownerId, runInput, {
         principal,
         request: req,
         origin: 'generation-runs',

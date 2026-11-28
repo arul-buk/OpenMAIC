@@ -71,6 +71,8 @@ export async function startClassicRun(input: {
   interactive: boolean;
   taskEngine: boolean;
   capabilities: ModelCapabilities;
+  ncertBucket?: string;
+  ncertChapters?: string[];
 }): Promise<RunSnapshot> {
   const agents = await selectedRunAgents();
   const materialIds = [...input.materialIds];
@@ -94,6 +96,10 @@ export async function startClassicRun(input: {
     agents,
     ...(learnerProfile ? { learnerProfile } : {}),
     ...(voice ? { voice } : {}),
+    ...(input.ncertBucket ? { ncertBucket: input.ncertBucket } : {}),
+    ...(input.ncertChapters && input.ncertChapters.length > 0
+      ? { ncertChapters: input.ncertChapters }
+      : {}),
     // The learner who asked to always review outlines confirms each one; any
     // other run confirms its own outline on the server after a short pause
     // (unless the learner opens the review in it), whether or not a page is

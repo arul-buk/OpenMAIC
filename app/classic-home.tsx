@@ -52,6 +52,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useAccessCodeGateOpen, useActiveProfile } from '@/components/access-code-guard';
 import { ProfileBadge } from '@/components/profile-badge';
+import { NcertSelector, type NcertSelection } from '@/components/ncert/ncert-selector';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -205,6 +206,7 @@ function HomePage() {
     `animate-in fill-mode-both ease-out motion-reduce:animate-none ${classes}`;
   const showVocationalTestUi = shouldShowVocationalTestUi();
   const [form, setForm] = useState<FormState>(initialFormState);
+  const [ncertSelection, setNcertSelection] = useState<NcertSelection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<
     import('@/lib/types/settings').SettingsSection | undefined
@@ -241,31 +243,29 @@ function HomePage() {
       /* localStorage unavailable */
     }
 
-    // Pre-fill requirement when launched from the NCERT Knowledge Base (/ncert)
+    // Pre-select NCERT chapter when launched from the NCERT Knowledge Base (/ncert)
     try {
       const params = new URLSearchParams(window.location.search);
       const ncertChapter = params.get('ncertChapter')?.trim();
       if (ncertChapter) {
-        fetch(`/api/ncert/chapter?path=${encodeURIComponent(ncertChapter)}&includeText=1`)
+        fetch(`/api/ncert/chapter?path=${encodeURIComponent(ncertChapter)}`)
           .then((res) => (res.ok ? res.json() : null))
           .then((payload) => {
             const data = payload?.data ?? payload;
             const ch = data?.chapter;
             if (!ch) return;
-            const parts = [
-              `Create an interactive lesson aligned with NCERT Class ${ch.class} ${ch.subject}: "${ch.chapter_title}" (${ch.book_title}, Chapter ${ch.chapter_number}).`,
-              `Cross-class topic progression: ${ch.topic_bucket}${data?.topicBucket?.classProgression ? ` (${data.topicBucket.classProgression})` : ''}.`,
-              Array.isArray(ch.subtopics) && ch.subtopics.length > 0
-                ? `Subtopics: ${ch.subtopics.join('; ')}.`
-                : '',
-              Array.isArray(ch.secondary_tags) && ch.secondary_tags.length > 0
-                ? `Key concepts: ${ch.secondary_tags.join(', ')}.`
-                : '',
-              typeof data?.textExcerpt === 'string' && data.textExcerpt.trim()
-                ? `\nNCERT Textbook Reference:\n${data.textExcerpt.slice(0, 2500)}`
-                : '',
-            ].filter(Boolean);
-            setForm((prev) => ({ ...prev, requirement: parts.join('\n') }));
+            setNcertSelection({
+              chapters: [ch.relative_path],
+              label: `Class ${ch.class} ${ch.subject} · Ch. ${ch.chapter_number}: ${ch.chapter_title}`,
+            });
+            setForm((prev) =>
+              prev.requirement.trim()
+                ? prev
+                : {
+                    ...prev,
+                    requirement: `Teach ${ch.chapter_title} (NCERT Class ${ch.class} ${ch.subject})`,
+                  },
+            );
           })
           .catch(() => {});
       }
@@ -637,7 +637,10 @@ function HomePage() {
     // provider always has a concrete model. State A (no usable provider)
     // surfaces through the toolbar's single Configure-Provider affordance.
     if (preparingGenerate) return;
-    if (!form.requirement.trim()) {
+    const effectiveRequirement =
+      form.requirement.trim() ||
+      (ncertSelection ? `Teach ${ncertSelection.label} aligned with NCERT curriculum` : '');
+    if (!effectiveRequirement) {
       setError(t('upload.requirementRequired'));
       return;
     }
@@ -660,11 +663,13 @@ function HomePage() {
         throw new Error(t('toolbar.materialUnavailable'));
       }
       const run = await startClassicRun({
-        requirement: form.requirement,
+        requirement: effectiveRequirement,
         materialIds,
         interactive: form.vocationalTestMode ? true : form.interactiveMode,
         taskEngine: form.vocationalTestMode,
         capabilities,
+        ...(ncertSelection?.bucket ? { ncertBucket: ncertSelection.bucket } : {}),
+        ...(ncertSelection?.chapters.length ? { ncertChapters: ncertSelection.chapters } : {}),
       });
       router.push(`/generation-preview?run=${encodeURIComponent(run.id)}`);
     } catch (err) {
@@ -701,7 +706,8 @@ function HomePage() {
   };
 
   // Generate waits for every attached material to be uploaded and extracted.
-  const canGenerate = !!form.requirement.trim() && hasUsableProvider && courseMaterials.allReady;
+  const canGenerate =
+    (!!form.requirement.trim() || !!ncertSelection) && hasUsableProvider && courseMaterials.allReady;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -953,6 +959,18 @@ function HomePage() {
               onKeyDown={handleKeyDown}
               rows={mobile ? 2 : 4}
             />
+
+            {/* Inline NCERT Topic / Chapter Selector */}
+            {hasNcertKb && (
+              <div className="px-3.5 pb-2 flex items-center gap-2">
+                <NcertSelector
+                  value={ncertSelection}
+                  onChange={setNcertSelection}
+                  disabled={preparingGenerate}
+                  compact
+                />
+              </div>
+            )}
 
             {/* Toolbar row */}
             <div className="home-composer-controls px-3 pb-3 flex items-end gap-2">
