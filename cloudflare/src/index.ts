@@ -5,6 +5,7 @@ export interface Env {
   DATABASE_URL: string;
   GOOGLE_API_KEY: string;
   ACCESS_CODE: string;
+  ACCESS_PROFILES?: string;
   OPENMAIC_SECRET_KEY: string;
   OWNER_SINGLE_USER_ID: string;
   AWS_ACCESS_KEY_ID: string;
@@ -27,6 +28,7 @@ export class OpenMAICContainer extends Container<Env> {
       GOOGLE_API_KEY: env.GOOGLE_API_KEY,
       GEMINI_LIVE_MODEL: "models/gemini-3.8-live",
       ACCESS_CODE: env.ACCESS_CODE,
+      ...(env.ACCESS_PROFILES ? { ACCESS_PROFILES: env.ACCESS_PROFILES } : {}),
       OPENMAIC_SECRET_KEY: env.OPENMAIC_SECRET_KEY,
       OWNER_SINGLE_USER_ID: env.OWNER_SINGLE_USER_ID,
       ASSET_S3_BUCKET: "openmaic-assets",

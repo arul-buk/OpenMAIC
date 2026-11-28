@@ -15,6 +15,8 @@ import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess, modelAuthorizationResponse } from '@/lib/server/api-response';
 import { resolveModelFromRequest, type ResolvedModel } from '@/lib/server/resolve-model';
 import { isLikelyTextOnlyModel } from '@/lib/live-tutor/model-capabilities';
+import { profileHasKbAccess } from '@/lib/server/access-profiles-shared';
+import { resolveAccessProfileFromRequest } from '@/lib/server/identity/profile-access';
 import { buildNcertGroundingContext } from '@/lib/ncert/storage';
 import type {
   HelpMeLearnPlan,
@@ -98,20 +100,29 @@ export async function POST(req: NextRequest) {
 
     const { model: languageModel, thinkingConfig, serverManaged } = resolved;
 
-    const ncertGrounding = await buildNcertGroundingContext({
-      query: rawTopic,
-      chapterPaths: body.ncertChapters,
-      bucketName: body.ncertBucket,
-      maxChapters: 3,
-      maxCharsTotal: 11_000,
-    });
+    const activeProfile = resolveAccessProfileFromRequest(req);
+    const canUseNcert = profileHasKbAccess(activeProfile, 'ncert');
+
+    const ncertGrounding = canUseNcert
+      ? await buildNcertGroundingContext({
+          query: rawTopic,
+          chapterPaths: body.ncertChapters,
+          bucketName: body.ncertBucket,
+          maxChapters: 3,
+          maxCharsTotal: 11_000,
+        })
+      : { sources: [], promptContext: '', tutorContext: '' };
+
+    const profileHint = activeProfile
+      ? `\nStudent profile: ${activeProfile.name}${activeProfile.grade ? ` (Grade ${activeProfile.grade})` : ''}${activeProfile.curriculum ? ` — ${activeProfile.curriculum}` : ''}.`
+      : '';
 
     const ncertInstruction = ncertGrounding.promptContext
-      ? `\n\nNCERT CURRICULUM GROUNDING (Classes 7-12 cross-class alignment):
+      ? `${profileHint}\n\nNCERT CURRICULUM GROUNDING (Classes 7-12 cross-class alignment):
 The student studies concepts across a cross-class NCERT progression (Class 7 to Class 12). Ground your definitions, notation, formulas, terminology, worked examples, and practice problem directly in the NCERT textbook reference below. Focus on conceptual depth and content alignment across the topic progression rather than restricting strictly to one grade.
 
 ${ncertGrounding.promptContext}`
-      : '';
+      : profileHint;
 
     const langHint = body.language
       ? `Write all student-facing text in locale "${body.language}".`

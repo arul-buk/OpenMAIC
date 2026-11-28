@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { profileHasKbAccess } from '@/lib/server/access-profiles-shared';
+import { resolveAccessProfileFromRequest } from '@/lib/server/identity/profile-access';
 import {
   findNcertChapterByPath,
   getNcertTopicBucket,
@@ -10,6 +12,10 @@ import { compactNcertText, readNcertChapterText } from '@/lib/ncert/storage';
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  const activeProfile = resolveAccessProfileFromRequest(req);
+  if (!profileHasKbAccess(activeProfile, 'ncert')) {
+    return apiError('INVALID_REQUEST', 403, 'NCERT Knowledge Base is not enabled for this profile');
+  }
   const url = new URL(req.url);
   const path = url.searchParams.get('path')?.trim() ?? '';
   const includeText = url.searchParams.get('includeText') === '1';

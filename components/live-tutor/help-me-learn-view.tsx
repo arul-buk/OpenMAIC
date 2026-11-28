@@ -23,6 +23,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { WhiteboardFrame, WHITEBOARD_SHELL_CLASS } from '@/components/whiteboard/whiteboard-frame';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { useActiveProfile } from '@/components/access-code-guard';
+import { ProfileBadge } from '@/components/profile-badge';
 import { SceneProvider, type SceneDataController } from '@/lib/contexts/scene-context';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
@@ -67,6 +69,7 @@ const STANDALONE_WHITEBOARD_CONTROLLER: SceneDataController = {
 
 export function HelpMeLearnView() {
   const { t, locale } = useI18n();
+  const { hasNcertKb } = useActiveProfile();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [topicInput, setTopicInput] = useState('');
@@ -307,6 +310,7 @@ export function HelpMeLearnView() {
               <span className="hidden sm:inline">{t('helpMeLearn.newTopic')}</span>
             </Button>
           )}
+          <ProfileBadge />
           <LanguageSwitcher />
         </div>
       </header>
@@ -389,41 +393,43 @@ export function HelpMeLearnView() {
             {/* Topic / Problem Input + Photo Upload */}
             <div className="space-y-3">
               {/* NCERT Knowledge Base Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-950/25 px-3.5 py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <BookMarked className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  {selectedNcertLabel ? (
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-200 truncate">
-                        NCERT KB: {selectedNcertLabel}
+              {hasNcertKb && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-950/25 px-3.5 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BookMarked className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    {selectedNcertLabel ? (
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-200 truncate">
+                          NCERT KB: {selectedNcertLabel}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedNcertChapters([]);
+                            setSelectedNcertBucket(null);
+                            setSelectedNcertLabel(null);
+                          }}
+                          className="p-0.5 rounded-full hover:bg-emerald-200/70 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300"
+                          aria-label="Clear NCERT selection"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-emerald-800 dark:text-emerald-200">
+                        Auto-aligned with <strong>NCERT Textbooks (Classes 7–12)</strong>
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedNcertChapters([]);
-                          setSelectedNcertBucket(null);
-                          setSelectedNcertLabel(null);
-                        }}
-                        className="p-0.5 rounded-full hover:bg-emerald-200/70 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300"
-                        aria-label="Clear NCERT selection"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-emerald-800 dark:text-emerald-200">
-                      Auto-aligned with <strong>NCERT Textbooks (Classes 7–12)</strong>
-                    </span>
-                  )}
+                    )}
+                  </div>
+                  <Link
+                    href="/ncert"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline shrink-0"
+                  >
+                    Browse Topics
+                    <ArrowRight className="size-3" />
+                  </Link>
                 </div>
-                <Link
-                  href="/ncert"
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline shrink-0"
-                >
-                  Browse Topics
-                  <ArrowRight className="size-3" />
-                </Link>
-              </div>
+              )}
 
               <textarea
                 value={topicInput}

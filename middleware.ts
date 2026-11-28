@@ -6,7 +6,8 @@ import {
 } from '@/lib/config/provider-migration';
 
 import { isAgentRuntimeConfigured, isWorkbenchEnabled } from '@/lib/config/feature-flags';
-import { verifyAccessTokenEdge } from '@/lib/server/access-token-edge';
+import { hasAnyAccessGateConfigured } from '@/lib/server/access-profiles-shared';
+import { verifyAnyAccessTokenEdge } from '@/lib/server/access-token-edge';
 import {
   anonymousOwnerForNavigation,
   type NavigationIdentity,
@@ -71,7 +72,7 @@ export async function middleware(request: NextRequest) {
   };
 
   const accessCode = process.env.ACCESS_CODE;
-  if (!accessCode) {
+  if (!hasAnyAccessGateConfigured()) {
     return forward();
   }
 
@@ -80,9 +81,9 @@ export async function middleware(request: NextRequest) {
     return forward();
   }
 
-  // Check cookie — validate HMAC signature, not just existence
+  // Check cookie — validate HMAC signature (supports both profile tokens and legacy single code)
   const cookie = request.cookies.get('openmaic_access');
-  if (cookie?.value && (await verifyAccessTokenEdge(cookie.value, accessCode))) {
+  if (cookie?.value && (await verifyAnyAccessTokenEdge(cookie.value, accessCode))) {
     return forward();
   }
 

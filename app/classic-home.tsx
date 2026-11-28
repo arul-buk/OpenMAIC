@@ -50,7 +50,8 @@ import { useMobileLayout } from '@/lib/adaptive/adaptive-provider';
 import { installPageScrollBoundary } from '@/lib/adaptive/page-scroll-boundary';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { useAccessCodeGateOpen } from '@/components/access-code-guard';
+import { useAccessCodeGateOpen, useActiveProfile } from '@/components/access-code-guard';
+import { ProfileBadge } from '@/components/profile-badge';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -154,6 +155,7 @@ const initialFormState: FormState = {
 function HomePage() {
   const { t } = useI18n();
   const { theme, setTheme } = useTheme();
+  const { hasNcertKb } = useActiveProfile();
   const router = useRouter();
   const mobile = useMobileLayout();
   useRestorePresetAgentChoice();
@@ -789,6 +791,8 @@ function HomePage() {
         ref={toolbarRef}
         className="home-top-tools fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
       >
+        <ProfileBadge className="border-0 bg-transparent shadow-none py-0.5 pl-1.5" />
+
         {/* Language Selector */}
         <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
 
@@ -1045,7 +1049,12 @@ function HomePage() {
         </div>
 
         {/* Help Me Learn & NCERT Knowledge Base cards */}
-        <div className="mt-3 w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div
+          className={cn(
+            'mt-3 w-full grid grid-cols-1 gap-2.5',
+            hasNcertKb && 'sm:grid-cols-2',
+          )}
+        >
           <Link
             href="/help-me-learn"
             data-testid="home-help-me-learn"
@@ -1073,31 +1082,33 @@ function HomePage() {
             <ChevronRight className="size-4 text-muted-foreground group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all shrink-0" />
           </Link>
 
-          <Link
-            href="/ncert"
-            data-testid="home-ncert-kb"
-            className="w-full flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 dark:border-emerald-800/50 bg-white/75 dark:bg-slate-900/70 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 backdrop-blur-md px-4 py-3 shadow-xs transition-all group"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="size-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                <BookMarked className="size-4" />
-              </div>
-              <div className="min-w-0 text-left">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
-                    NCERT Textbooks KB
-                  </span>
-                  <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
-                    7–12
-                  </span>
+          {hasNcertKb && (
+            <Link
+              href="/ncert"
+              data-testid="home-ncert-kb"
+              className="w-full flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 dark:border-emerald-800/50 bg-white/75 dark:bg-slate-900/70 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 backdrop-blur-md px-4 py-3 shadow-xs transition-all group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="size-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <BookMarked className="size-4" />
                 </div>
-                <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
-                  23 cross-class topics · 25 books · PDFs & lessons
-                </p>
+                <div className="min-w-0 text-left">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
+                      NCERT Textbooks KB
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
+                      7–12
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
+                    23 cross-class topics · 25 books · PDFs & lessons
+                  </p>
+                </div>
               </div>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all shrink-0" />
-          </Link>
+              <ChevronRight className="size-4 text-muted-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all shrink-0" />
+            </Link>
+          )}
         </div>
 
         {showVocationalTestUi && (

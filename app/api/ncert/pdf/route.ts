@@ -1,12 +1,18 @@
 import { basename } from 'node:path';
 import { NextRequest } from 'next/server';
 import { apiError } from '@/lib/server/api-response';
+import { profileHasKbAccess } from '@/lib/server/access-profiles-shared';
+import { resolveAccessProfileFromRequest } from '@/lib/server/identity/profile-access';
 import { isValidNcertPdfPath } from '@/lib/ncert/catalog';
 import { readNcertPdfBytes } from '@/lib/ncert/storage';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  const activeProfile = resolveAccessProfileFromRequest(req);
+  if (!profileHasKbAccess(activeProfile, 'ncert')) {
+    return apiError('INVALID_REQUEST', 403, 'NCERT Knowledge Base is not enabled for this profile');
+  }
   const url = new URL(req.url);
   const path = url.searchParams.get('path')?.trim() ?? '';
 

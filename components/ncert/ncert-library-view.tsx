@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ProfileBadge } from '@/components/profile-badge';
 import type { NcertBook, NcertChapter, NcertTopicBucket } from '@/lib/ncert/types';
 
 interface NcertLibraryViewProps {
@@ -184,6 +185,7 @@ export function NcertLibraryView({ summary, topicBuckets, books }: NcertLibraryV
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <ProfileBadge />
           <Link
             href="/help-me-learn"
             className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white px-3.5 py-2 text-xs font-semibold shadow-xs transition-colors"

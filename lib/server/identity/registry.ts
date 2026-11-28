@@ -1,4 +1,5 @@
 import { anonymousCookieMethod } from './anonymous-cookie';
+import { profileAccessAuthMethod } from './profile-access';
 import { isSharedTeamAuthMethod, resolveSharedOwnerId, sharedTeamAuthMethod } from './shared-team';
 import {
   isSingleUserAuthMethod,
@@ -7,6 +8,7 @@ import {
   singleUserAuthMethod,
   warnIfSingleUserIsUnprotected,
 } from './single-user';
+import { hasProfileAccessConfigured } from '@/lib/server/access-profiles-shared';
 import { resolveClaimLockWaitMs, resolveWriteLockWaitMs } from '@/lib/persistence/owner-lock-waits';
 
 import { createLogger } from '@/lib/logger';
@@ -73,6 +75,7 @@ function registry(): RegistryState {
   return (globalState[REGISTRY_KEY] ??= {});
 }
 
+const profileAccessFromEnvironment = profileAccessAuthMethod();
 const sharedTeamFromEnvironment = sharedTeamAuthMethod();
 const singleUserFromEnvironment = singleUserAuthMethod();
 
@@ -98,12 +101,17 @@ function configurationFromEnvironment(): OwnerAuthConfiguration {
   const sharedOwnerId = resolveSharedOwnerId();
   const singleOwnerId = resolveSingleUserOwnerId();
   assertOneCatchAllOwner(sharedOwnerId, singleOwnerId);
+  const methods: OwnerAuthMethod[] = [];
+  if (hasProfileAccessConfigured()) {
+    methods.push(profileAccessFromEnvironment);
+  }
+  if (sharedOwnerId) {
+    methods.push(sharedTeamFromEnvironment);
+  } else if (singleOwnerId) {
+    methods.push(singleUserFromEnvironment);
+  }
   return {
-    methods: sharedOwnerId
-      ? [sharedTeamFromEnvironment]
-      : singleOwnerId
-        ? [singleUserFromEnvironment]
-        : [],
+    methods,
     anonymousFallback: true,
   };
 }

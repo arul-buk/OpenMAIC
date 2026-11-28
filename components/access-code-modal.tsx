@@ -4,10 +4,11 @@ import { useState, useRef, useEffect, useId } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
+import type { PublicAccessProfile } from '@/lib/server/access-profiles-shared';
 
 interface AccessCodeModalProps {
   open: boolean;
-  onSuccess: () => void;
+  onSuccess: (profile?: PublicAccessProfile | null) => void;
 }
 
 export function AccessCodeModal({ open, onSuccess }: AccessCodeModalProps) {
@@ -39,8 +40,13 @@ export function AccessCodeModal({ open, onSuccess }: AccessCodeModalProps) {
       });
 
       if (res.ok) {
+        const json = (await res.json().catch(() => ({}))) as {
+          data?: { profile?: PublicAccessProfile | null };
+          profile?: PublicAccessProfile | null;
+        };
+        const profile = (json.data ?? json).profile ?? null;
         setSuccess(true);
-        setTimeout(onSuccess, 600);
+        setTimeout(() => onSuccess(profile), 500);
       } else {
         setError(t('accessCode.error'));
         setCode('');
