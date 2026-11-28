@@ -14,10 +14,7 @@ import { callLLM } from '@/lib/ai/llm';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess, modelAuthorizationResponse } from '@/lib/server/api-response';
 import { resolveModelFromRequest, type ResolvedModel } from '@/lib/server/resolve-model';
-import { isLikelyTextOnlyModel } from '@/lib/live-tutor/model-capabilities';
-import { profileHasKbAccess } from '@/lib/server/access-profiles-shared';
-import { resolveAccessProfileFromRequest } from '@/lib/server/identity/profile-access';
-import { buildNcertGroundingContext } from '@/lib/ncert/storage';
+import { modelSupportsVision } from '@/lib/live-tutor/model-capabilities';
 import type {
   HelpMeLearnPlan,
   LearningMode,
@@ -26,9 +23,7 @@ import type {
 } from '@/lib/live-tutor/types';
 
 function resolvedModelSupportsVision(resolved: ResolvedModel): boolean {
-  const cataloguedVision = resolved.modelInfo?.capabilities?.vision;
-  if (typeof cataloguedVision === 'boolean') return cataloguedVision;
-  return !isLikelyTextOnlyModel(resolved.modelId);
+  return modelSupportsVision(resolved.modelId, resolved.modelInfo?.capabilities?.vision);
 }
 
 const log = createLogger('HelpMeLearnPlan');
@@ -38,8 +33,6 @@ interface PlanRequest {
   mode?: LearningMode;
   imageDataUrl?: string;
   language?: string;
-  ncertChapters?: string[];
-  ncertBucket?: string;
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> | null {
@@ -58,17 +51,18 @@ function extractJsonObject(raw: string): Record<string, unknown> | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as PlanRequest;
+    const rawBody: unknown = await req.json().catch(() => null);
+    if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+      return apiError('INVALID_REQUEST', 400, 'Invalid JSON request body');
+    }
+    const body = rawBody as PlanRequest;
     const rawTopic = body.topic?.trim() ?? '';
     const hasImage = Boolean(body.imageDataUrl && body.imageDataUrl.startsWith('data:image/'));
-    const hasNcertSelection =
-      (Array.isArray(body.ncertChapters) && body.ncertChapters.length > 0) ||
-      Boolean(body.ncertBucket?.trim());
-    if (!rawTopic && !hasImage && !hasNcertSelection) {
+    if (!rawTopic && !hasImage) {
       return apiError(
         'MISSING_REQUIRED_FIELD',
         400,
-        'Please enter a topic, pick an NCERT chapter, or attach a problem photo',
+        'Please enter a topic or attach a problem photo',
       );
     }
     if (body.imageDataUrl && body.imageDataUrl.length > 8_000_000) {
@@ -83,10 +77,14 @@ export async function POST(req: NextRequest) {
 
     if (hasImage && !resolvedModelSupportsVision(resolved)) {
       if (stage === 'scene-content:slide') {
-        const classroomResolved = await resolveModelFromRequest(req, body, 'chat-adapter');
-        if (resolvedModelSupportsVision(classroomResolved)) {
-          stage = 'chat-adapter';
-          resolved = classroomResolved;
+        try {
+          const classroomResolved = await resolveModelFromRequest(req, body, 'chat-adapter');
+          if (resolvedModelSupportsVision(classroomResolved)) {
+            stage = 'chat-adapter';
+            resolved = classroomResolved;
+          }
+        } catch {
+          // Classroom slot may be disabled or unassigned; fall through to the 400 vision error
         }
       }
       if (!resolvedModelSupportsVision(resolved)) {
@@ -100,30 +98,6 @@ export async function POST(req: NextRequest) {
 
     const { model: languageModel, thinkingConfig, serverManaged } = resolved;
 
-    const activeProfile = resolveAccessProfileFromRequest(req);
-    const canUseNcert = profileHasKbAccess(activeProfile, 'ncert');
-
-    const ncertGrounding = canUseNcert
-      ? await buildNcertGroundingContext({
-          query: rawTopic,
-          chapterPaths: body.ncertChapters,
-          bucketName: body.ncertBucket,
-          maxChapters: 3,
-          maxCharsTotal: 11_000,
-        })
-      : { sources: [], promptContext: '', tutorContext: '' };
-
-    const profileHint = activeProfile
-      ? `\nStudent profile: ${activeProfile.name}${activeProfile.grade ? ` (Grade ${activeProfile.grade})` : ''}${activeProfile.curriculum ? ` — ${activeProfile.curriculum}` : ''}.`
-      : '';
-
-    const ncertInstruction = ncertGrounding.promptContext
-      ? `${profileHint}\n\nNCERT CURRICULUM GROUNDING (Classes 7-12 cross-class alignment):
-The student studies concepts across a cross-class NCERT progression (Class 7 to Class 12). Ground your definitions, notation, formulas, terminology, worked examples, and practice problem directly in the NCERT textbook reference below. Focus on conceptual depth and content alignment across the topic progression rather than restricting strictly to one grade.
-
-${ncertGrounding.promptContext}`
-      : profileHint;
-
     const langHint = body.language
       ? `Write all student-facing text in locale "${body.language}".`
       : '';
@@ -131,7 +105,7 @@ ${ncertGrounding.promptContext}`
     const systemPrompt =
       mode === 'theory-then-solve'
         ? `You are a supportive master teacher helping a student learn a topic from first principles and then solve a problem.
-${langHint}${ncertInstruction}
+${langHint}
 Generate 3 to 4 concise, visual theory slides that build intuition step by step, followed by 1 practice problem (use the student's exact problem if they provided one, or create a clear practice problem on the topic).
 Formulas in "formulaLatex" must be valid KaTeX/LaTeX WITHOUT surrounding $ or $$ delimiters.
 Reply with valid JSON only:
@@ -157,7 +131,7 @@ Reply with valid JSON only:
   }
 }`
         : `You are a supportive Socratic tutor preparing to guide a student directly through solving their problem step by step on a whiteboard.
-${langHint}${ncertInstruction}
+${langHint}
 Extract the exact problem from the student's prompt or photo (or create a focused problem if they only named a topic). Do NOT solve it yet — only state the problem clearly and give a gentle starting hint.
 Reply with valid JSON only:
 {
@@ -170,14 +144,9 @@ Reply with valid JSON only:
   }
 }`;
 
-    const defaultNcertPrompt =
-      ncertGrounding.sources.length > 0
-        ? `Teach and practice the NCERT topic: ${ncertGrounding.sources.map((s) => `Class ${s.classLevel} ${s.subject} — ${s.chapterTitle}`).join('; ')}`
-        : 'Read the problem shown in the attached image and prepare the study session.';
-
     const promptText = rawTopic
       ? `Student request: ${rawTopic}`
-      : defaultNcertPrompt;
+      : 'Read the problem shown in the attached image and prepare the study session.';
 
     const messages: ModelMessage[] = hasImage
       ? [
@@ -200,7 +169,8 @@ Reply with valid JSON only:
       stage,
       undefined,
       thinkingConfig,
-      { serverManaged },
+      // Disable slot fallback for image-bearing requests so a retry never hits a text-only fallback model
+      { serverManaged, enabled: !hasImage },
     );
 
     const parsed = extractJsonObject(result.text);
@@ -274,12 +244,6 @@ Reply with valid JSON only:
       mode,
       slides,
       problem,
-      ...(ncertGrounding.sources.length > 0
-        ? {
-            ncertSources: ncertGrounding.sources,
-            ncertContext: ncertGrounding.tutorContext,
-          }
-        : {}),
     };
 
     return apiSuccess({ plan });
